@@ -75,20 +75,28 @@ function Find-SettingsWindow {
     return $null
 }
 
+function Ensure-SettingsWindow {
+    Add-Type -AssemblyName UIAutomationClient -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName UIAutomationTypes -ErrorAction SilentlyContinue
+
+    $win = Find-SettingsWindow
+    if ($win) { return $win }
+
+    Start-Process "ms-settings:network-dialup"
+    for ($w = 1; $w -le 6 -and -not $win; $w++) {   # 设置页冷启动可能要好几秒, 最多等 12 秒
+        Start-Sleep -Seconds 2
+        $win = Find-SettingsWindow
+    }
+    return $win
+}
+
 # 拟人操作: 在设置页找到"$connName"卡片的"连接"按钮并点击(后台触发, 不需要前台)
 function Invoke-GuiConnect {
     try {
         Add-Type -AssemblyName UIAutomationClient -ErrorAction SilentlyContinue
         Add-Type -AssemblyName UIAutomationTypes -ErrorAction SilentlyContinue
 
-        $win = Find-SettingsWindow
-        if (-not $win) {
-            Start-Process "ms-settings:network-dialup"
-            for ($w = 1; $w -le 6 -and -not $win; $w++) {   # 设置页冷启动可能要好几秒, 最多等 12 秒
-                Start-Sleep -Seconds 2
-                $win = Find-SettingsWindow
-            }
-        }
+        $win = Ensure-SettingsWindow
         if (-not $win) { return $false }
 
         $itemCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $connName)
@@ -189,6 +197,14 @@ if (-not $created) {
 Write-Log ("=" * 50) DarkCyan
 Write-Log "PPPoE-Guardian 启动, 监测连接: $connName" Green
 Write-Log "规则: 掉线自动重拨(最多连续 $maxRetries 次), 连续稳定 $stableMinutes 分钟后自动退出" Gray
+
+if ($dialMethod -eq "gui") {
+    if (Ensure-SettingsWindow) {
+        Write-Log "启动时已确认设置 > 拨号窗口存在" Gray
+    } else {
+        Write-Log "启动时未能打开设置 > 拨号窗口, GUI 拨号失败时将回退 rasdial" DarkYellow
+    }
+}
 
 $stableSeconds = 0
 $offlineStreak = 0
